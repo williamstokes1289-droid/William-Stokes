@@ -1,0 +1,23 @@
+Axis9 Runtime Validation Certificate
+
+Author: William Stokes
+Year: 2026
+
+Runtime validation window: 600 seconds (steady-state).
+
+Telemetry (NVML):
+median_vram ≈ 0.88
+oscillation amplitude reduction ≈ 63%
+allocator drift reduction ≈ 17×
+
+Decoder Safety Invariant:
+geom_while_gap = 0
+
+System Result:
+Deterministic VRAM stability maintained across the full runtime window.
+
+This artifact documents the observed runtime behavior of the Axis9
+execution engine under sustained workload conditions.
+
+© 2026 William Stokes
+Licensed under Apache License 2.0
