@@ -1,0 +1,251 @@
+"""
+HydroLens
+Satellite observation of water systems.
+
+A lightweight pipeline for detecting water regions and visualizing
+water-related change from satellite imagery.
+
+Usage:
+    python hydrolens.py --before before.png --after after.png --out output_dir
+
+Notes:
+- Works with regular RGB images.
+- If you later use multispectral imagery, replace the water index function
+  with NDWI/MNDWI using the correct bands.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+
+def load_image(path: str) -> np.ndarray:
+    img = cv2.imread(path, cv2.IMREAD_COLOR)
+    if img is None:
+        raise FileNotFoundError(f"Could not read image: {path}")
+    # OpenCV loads BGR; convert to RGB
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+
+def normalize_image(img: np.ndarray) -> np.ndarray:
+    """Normalize image to float32 in [0, 1]."""
+    return img.astype(np.float32) / 255.0
+
+
+def align_images(reference: np.ndarray, moving: np.ndarray) -> np.ndarray:
+    """
+    Align the 'moving' image to the 'reference' image using ECC registration.
+    Falls back to resize if alignment fails.
+    """
+    ref_gray = cv2.cvtColor((reference * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
+    mov_gray = cv2.cvtColor((moving * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
+
+    warp_matrix = np.eye(2, 3, dtype=np.float32)
+    criteria = (
+        cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+        100,
+        1e-6,
+    )
+
+    try:
+        cv2.findTransformECC(
+            ref_gray,
+            mov_gray,
+            warp_matrix,
+            cv2.MOTION_EUCLIDEAN,
+            criteria,
+        )
+        aligned = cv2.warpAffine(
+            moving,
+            warp_matrix,
+            (reference.shape[1], reference.shape[0]),
+            flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP,
+            borderMode=cv2.BORDER_REFLECT,
+        )
+        return aligned
+    except cv2.error:
+        return cv2.resize(
+            moving,
+            (reference.shape[1], reference.shape[0]),
+            interpolation=cv2.INTER_LINEAR,
+        )
+
+
+def compute_water_index_rgb(img: np.ndarray) -> np.ndarray:
+    """
+    RGB-only water index approximation.
+    Water tends to be relatively stronger in blue/green and weaker in red.
+    This is not as good as NDWI on multispectral data, but works for demos.
+    """
+    r = img[:, :, 0]
+    g = img[:, :, 1]
+    b = img[:, :, 2]
+
+    # Simple index emphasizing blue/green while penalizing red/brightness
+    idx = (0.5 * g + 1.0 * b - 0.75 * r)
+    idx = cv2.GaussianBlur(idx, (5, 5), 0)
+    return idx
+
+
+def detect_water_mask(img: np.ndarray) -> np.ndarray:
+    """
+    Detect likely water pixels from RGB imagery.
+    Returns a binary mask (uint8, values 0 or 255).
+    """
+    index = compute_water_index_rgb(img)
+
+    # Normalize index to 0..255 for thresholding
+    index_norm = cv2.normalize(index, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+
+    # Otsu threshold
+    _, mask = cv2.threshold(index_norm, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # Clean up mask
+    kernel = np.ones((3, 3), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+    return mask
+
+
+def compute_change_map(before_mask: np.ndarray, after_mask: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Returns:
+    - gained_water: areas that became water
+    - lost_water: areas that stopped being water
+    """
+    before_bool = before_mask > 0
+    after_bool = after_mask > 0
+
+    gained = np.logical_and(~before_bool, after_bool).astype(np.uint8) * 255
+    lost = np.logical_and(before_bool, ~after_bool).astype(np.uint8) * 255
+
+    return gained, lost
+
+
+def render_overlay(
+    base_img: np.ndarray,
+    gained_water: np.ndarray,
+    lost_water: np.ndarray,
+    alpha: float = 0.45,
+) -> np.ndarray:
+    """
+    Overlay:
+    - blue for new water
+    - red for lost water
+    """
+    overlay = base_img.copy()
+
+    gained_color = np.zeros_like(base_img)
+    gained_color[:, :, 2] = gained_water  # blue in RGB index 2? No, RGB is [R,G,B], so:
+    gained_color[:, :, 0] = 0
+    gained_color[:, :, 1] = 80
+    gained_color[:, :, 2] = gained_water
+
+    lost_color = np.zeros_like(base_img)
+    lost_color[:, :, 0] = lost_water
+    lost_color[:, :, 1] = 30
+    lost_color[:, :, 2] = 0
+
+    gained_mask = gained_water > 0
+    lost_mask = lost_water > 0
+
+    overlay[gained_mask] = (
+        (1 - alpha) * overlay[gained_mask] + alpha * gained_color[gained_mask]
+    ).astype(np.uint8)
+
+    overlay[lost_mask] = (
+        (1 - alpha) * overlay[lost_mask] + alpha * lost_color[lost_mask]
+    ).astype(np.uint8)
+
+    return overlay
+
+
+def save_image(path: str | Path, img_rgb: np.ndarray) -> None:
+    path = str(path)
+    img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+    cv2.imwrite(path, img_bgr)
+
+
+def save_mask(path: str | Path, mask: np.ndarray) -> None:
+    cv2.imwrite(str(path), mask)
+
+
+def summarize_masks(before_mask: np.ndarray, after_mask: np.ndarray, gained: np.ndarray, lost: np.ndarray) -> dict:
+    total_pixels = before_mask.shape[0] * before_mask.shape[1]
+
+    before_water = int(np.count_nonzero(before_mask))
+    after_water = int(np.count_nonzero(after_mask))
+    gained_pixels = int(np.count_nonzero(gained))
+    lost_pixels = int(np.count_nonzero(lost))
+
+    return {
+        "total_pixels": total_pixels,
+        "before_water_pixels": before_water,
+        "after_water_pixels": after_water,
+        "gained_water_pixels": gained_pixels,
+        "lost_water_pixels": lost_pixels,
+        "before_water_pct": 100.0 * before_water / total_pixels,
+        "after_water_pct": 100.0 * after_water / total_pixels,
+        "gained_water_pct": 100.0 * gained_pixels / total_pixels,
+        "lost_water_pct": 100.0 * lost_pixels / total_pixels,
+    }
+
+
+def write_summary(path: str | Path, stats: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("HydroLens Summary\n")
+        f.write("=================\n\n")
+        for key, value in stats.items():
+            f.write(f"{key}: {value}\n")
+
+
+def process(before_path: str, after_path: str, out_dir: str) -> None:
+    os.makedirs(out_dir, exist_ok=True)
+
+    before = normalize_image(load_image(before_path))
+    after = normalize_image(load_image(after_path))
+
+    after_aligned = align_images(before, after)
+
+    before_mask = detect_water_mask(before)
+    after_mask = detect_water_mask(after_aligned)
+
+    gained, lost = compute_change_map(before_mask, after_mask)
+
+    base_img = (after_aligned * 255).astype(np.uint8)
+    overlay = render_overlay(base_img, gained, lost)
+
+    save_image(Path(out_dir) / "before_aligned_reference.png", (before * 255).astype(np.uint8))
+    save_image(Path(out_dir) / "after_aligned.png", (after_aligned * 255).astype(np.uint8))
+    save_mask(Path(out_dir) / "before_water_mask.png", before_mask)
+    save_mask(Path(out_dir) / "after_water_mask.png", after_mask)
+    save_mask(Path(out_dir) / "gained_water_mask.png", gained)
+    save_mask(Path(out_dir) / "lost_water_mask.png", lost)
+    save_image(Path(out_dir) / "water_change_overlay.png", overlay)
+
+    stats = summarize_masks(before_mask, after_mask, gained, lost)
+    write_summary(Path(out_dir) / "summary.txt", stats)
+
+    print("HydroLens run complete.")
+    print(f"Outputs saved to: {out_dir}")
+    for k, v in stats.items():
+        print(f"{k}: {v}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="HydroLens water-change detection pipeline")
+    parser.add_argument("--before", required=True, help="Path to earlier satellite image")
+    parser.add_argument("--after", required=True, help="Path to later satellite image")
+    parser.add_argument("--out", default="hydrolens_output", help="Output directory")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    process(args.before, args.after, args.out)
