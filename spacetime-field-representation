@@ -1,0 +1,21 @@
+# Spacetime Field Representation
+
+This repository explores a simple field-theory view of physics:
+
+spacetime point
+(x,y,z,t) ∈ ℝ⁴
+        ↓
+field function
+f : ℝ⁴ → ℝⁿ
+        ↓
+physical field values
+        ↓
+constraints
+        ↓
+behavior
+
+Examples:
+- Electromagnetism: ℝ⁴ → ℝ⁶
+- Gravity (metric tensor): ℝ⁴ → ℝ¹⁰
+
+This repo contains notes and minimal code stubs for physics-informed neural field representations.
