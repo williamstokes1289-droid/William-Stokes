@@ -1,0 +1,14 @@
+This document presents a conceptual VRAM residency model for a Maia300-class accelerator utilizing an HBM4 memory architecture. The model examines how total device memory translates into stable working memory under sustained workloads by accounting for system reservation, allocator fragmentation, and runtime stability constraints.
+While accelerator specifications typically report raw VRAM capacity, real runtime behavior depends on how effectively that memory can remain resident without triggering allocator churn, memory thrashing, or transient compute stalls. The purpose of this model is to estimate the portion of memory that remains consistently stable during long-running inference or compute workloads.
+Starting from a modeled 288 GB HBM configuration, the analysis derives several stages of effective memory availability, including usable memory, allocator-effective capacity, and steady-state residency. The model further distributes this working set across the physical HBM topology in order to estimate stack-level and channel-level memory pressure.
+The resulting system pipeline can be summarized as:
+
+288 GB VRAM
+↓
+~212 GB stable residency (~73.6%)
+↓
+~26.5 GB active per HBM stack
+↓
+~1.66 GB working set per memory channel
+This framework connects allocator behavior at the runtime level with physical memory pressure within the HBM subsystem, providing a structured way to reason about stable GPU memory utilization in high-capacity accelerator architectures.
+The model is intended as an analytical tool for understanding memory residency behavior rather than a claim of a specific hardware implementation.
