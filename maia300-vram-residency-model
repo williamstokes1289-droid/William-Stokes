@@ -1,0 +1,106 @@
+# MAIA-300 VRAM Residency Model
+
+This repository documents a VRAM residency model for the MAIA-300 GPU architecture.
+
+The goal is to estimate realistic allocator-stable VRAM residency under sustained compute workloads and memory allocator behavior.
+
+The model derives stable residency levels from total HBM4 capacity and applies distribution across memory stacks and channels.
+
+---
+
+## Memory Capacity
+
+Total HBM4 VRAM:
+
+288 GB
+
+---
+
+## Stable Residency Estimate
+
+Observed stable residency:
+
+~212 GB
+
+Residency ratio:
+
+212 / 288 ≈ 0.736
+
+≈ 73.6% stable VRAM utilization
+
+---
+
+## Residency Breakdown
+
+288 GB total VRAM
+↓
+~268 GB usable memory (driver/system overhead removed)
+↓
+~241 GB allocator-effective memory
+↓
+~212 GB stable residency
+↓
+~73.6% sustained utilization
+
+---
+
+## HBM Distribution
+
+MAIA-300 HBM architecture assumed:
+
+8 HBM stacks  
+16 memory channels per stack
+
+Stable distribution:
+
+Per HBM stack:
+
+212 GB / 8 ≈ 26.5 GB
+
+Per memory channel:
+
+26.5 GB / 16 ≈ 1.66 GB
+
+---
+
+## Resulting Working Set Model
+
+Total VRAM: 288 GB
+
+Stable residency: ~212 GB
+
+Per stack working set: ~26.5 GB
+
+Per channel working set: ~1.66 GB
+
+---
+
+## Engineering Interpretation
+
+The model represents the expected stable allocator residency plateau for large-scale compute workloads when memory allocation overhead, driver reservation, and fragmentation effects are accounted for.
+
+This produces a stable VRAM operating window rather than theoretical full capacity.
+
+---
+
+## Validation Context
+
+The residency model is derived from allocator-stable GPU operation and NVML telemetry observations under sustained workload conditions.
+
+Observed characteristics:
+
+• stable VRAM plateau  
+• reduced allocation oscillation  
+• predictable residency envelope
+
+---
+
+## Repository Contents
+
+README.md — architecture overview  
+vram_model.md — mathematical derivation of residency model
+
+---
+
+© 2026 William Stokes  
+All rights reserved.
