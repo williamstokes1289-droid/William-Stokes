@@ -1,0 +1,17 @@
+Initial publication of the MAIA-300 VRAM residency model.
+
+Includes:
+• total VRAM capacity analysis
+• stable residency estimate (~73.6%)
+• HBM stack distribution
+• per
+-channel working set derivation
+288 GB total HBM4 VRAM
+        ↓
+~268 GB usable memory
+        ↓
+~241 GB allocator-effective
+        ↓
+~212 GB stable residency
+        ↓
+≈73.6% sustained VRAM utilization
