@@ -1,0 +1,12 @@
+Axis9 Execution Architecture
+Axis 393 Sovereign Memory Model (SMM)
+
+Copyright © 2026 William Stokes
+
+This repository contains the Axis9 execution architecture and the
+Axis 393 Sovereign Memory Model reference implementation.
+
+Licensed under the Apache License, Version 2.0 (Apache-2.0).
+You may obtain a copy of the License at:
+
+http://www.apache.org/licenses/LICENSE-2.0
